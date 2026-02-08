@@ -41,8 +41,8 @@ A production-ready FastAPI boilerplate with authentication, database management,
 
 ### Additional Features
 - **Caching**: Redis response caching decorator
-- **Storage**: S3-compatible file storage
-- **Email**: AWS SES email service
+- **Storage**: Google Cloud Storage for file uploads
+- **Email**: ZeptoMail with Jinja2 HTML templates (mock mode for development)
 - **Celery**: Background task processing
 - **Countries API**: Country list with timezone inference
 - **OpenAPI**: Bearer token auth in Swagger UI
@@ -66,14 +66,16 @@ fastapi-boilerplate/
 │   │   ├── schema.py          # Base Pydantic schemas
 │   │   ├── websocket.py       # WebSocket base handler
 │   │   ├── middlewares/       # Request/response middlewares
-│   │   │   ├── security.py    # Security headers
+│   │   │   ├── security.py    # Security headers (CSP configured for Swagger)
 │   │   │   ├── logging.py     # Request logging
 │   │   │   ├── ratelimit.py   # Rate limiting
 │   │   │   └── cache.py       # Response caching
 │   │   ├── services/          # Shared services
-│   │   │   ├── email_service.py   # AWS SES
-│   │   │   ├── storage.py         # S3 storage
-│   │   │   └── redis_service.py   # Redis operations
+│   │   │   ├── email_service.py    # ZeptoMail with templates
+│   │   │   │   └── email_templates/ # Jinja2 HTML templates
+│   │   │   ├── storage.py          # Google Cloud Storage
+│   │   │   ├── redis_service.py    # Redis operations
+│   │   │   └── ai_service.py       # AI integrations
 │   │   ├── utils/             # Utility functions
 │   │   │   └── timezone.py    # Timezone inference
 │   │   └── models/            # Core database models
@@ -84,7 +86,8 @@ fastapi-boilerplate/
 │       │   ├── service.py     # Auth business logic
 │       │   ├── schemas.py     # Request/response models
 │       │   ├── dependencies.py # Auth dependencies
-│       │   └── repositories/  # Refresh token repo
+│       │   ├── repositories/  # Refresh token repo
+│       │   └── tasks/         # Cleanup background tasks
 │       ├── users/             # User management
 │       │   ├── router.py      # User endpoints (/users/me)
 │       │   ├── service.py     # User business logic
@@ -92,17 +95,20 @@ fastapi-boilerplate/
 │       │   ├── repository.py  # User data access
 │       │   └── schemas.py     # User schemas
 │       ├── chatbot/           # AI Chatbot
-│       │   ├── routes.py      # Chat WebSocket endpoint
+│       │   ├── routes/        # WebSocket & upload endpoints
 │       │   ├── models/        # Thread, Message, Summary models
 │       │   ├── repositories/  # Data access layer
 │       │   └── services/      # Business logic
 │       │       ├── chat_service.py       # Main orchestrator
 │       │       ├── agent_service.py      # AI streaming
 │       │       ├── context_service.py    # Context building
-│       │       └── moderation_service.py # Content safety
-│       └── countries/         # Countries & Timezones
-│           ├── router.py      # Countries endpoint
-│           └── service.py     # Country data with timezones
+│       │       ├── moderation_service.py # Content safety
+│       │       └── websocket_service.py  # WebSocket handler
+│       ├── countries/         # Countries & Timezones
+│       │   ├── router.py      # Countries endpoint
+│       │   └── service.py     # Country data with timezones
+│       └── health/            # Health check
+│           └── router.py      # Health endpoint
 ├── alembic/                   # Database migrations
 │   ├── env.py                # Alembic environment
 │   └── versions/             # Migration files
@@ -120,7 +126,7 @@ fastapi-boilerplate/
 - Python 3.13+
 - PostgreSQL 15+
 - Redis 7+
-- AWS Account (for S3 and SES) or compatible alternatives
+- Google Cloud Platform account (for storage and AI)
 
 ### 1. Install uv (Python Package Manager)
 
@@ -137,7 +143,7 @@ powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 ### 2. Clone and Install Dependencies
 
 ```bash
-git clone <your-repo-url>
+git clone git@github.com:0Baris/fastapi-boilerplate.git
 cd fastapi-boilerplate
 uv sync
 ```
@@ -192,7 +198,7 @@ Access the API:
 ### Core Settings
 ```bash
 # Application
-PROJECT_NAME=FastAPI Boilerplate
+PROJECT_NAME="FastAPI Boilerplate"
 ENVIRONMENT=development  # development, staging, production
 SECRET_KEY=your-secret-key-min-32-chars
 DEBUG_RETURN_VERIFICATION_CODE=true  # Return codes in response (dev only)
@@ -219,38 +225,46 @@ APPLE_BUNDLE_ID=com.yourapp.bundle
 APPLE_SERVICE_ID=com.yourapp.service
 ```
 
-### AWS Services
+### Google Cloud Services
 ```bash
-# S3 Storage
-AWS_ACCESS_KEY_ID=your-access-key
-AWS_SECRET_ACCESS_KEY=your-secret-key
-AWS_S3_BUCKET=your-bucket-name
-AWS_REGION=us-east-1
+# Cloud Storage
+PUBLIC_BUCKET_NAME=your-public-bucket
+PRIVATE_BUCKET_NAME=your-private-bucket
+GOOGLE_APPLICATION_CREDENTIALS_BASE64=base64-encoded-service-account-json
 
-# SES Email
-AWS_SES_REGION=us-east-1
-EMAIL_FROM=noreply@yourdomain.com
-```
-
-### AI Chatbot
-```bash
-# Google Gemini
+# Gemini AI
 GOOGLE_API_KEY=your-gemini-api-key
 GEMINI_CHAT_MODEL=gemini-2.0-flash-exp
 GEMINI_MODEL_LOW=gemini-2.0-flash-exp
+```
 
-# Chat Settings
+### Email Service
+```bash
+# ZeptoMail
+USE_MOCK_EMAIL=true  # Set to false in production
+ZEPTOMAIL_API_KEY=your-zeptomail-api-key
+ZEPTOMAIL_FROM_EMAIL=noreply@yourdomain.com
+ZEPTOMAIL_FROM_NAME="FastAPI Boilerplate"
+```
+
+### Chat Settings
+```bash
 CHAT_SUMMARY_TRIGGER_COUNT=50  # Messages before auto-summary
+CHAT_MAX_FILE_SIZE_MB=10       # Max file upload size
 ```
 
 ### API Settings
 ```bash
 # CORS
-BACKEND_CORS_ORIGINS=["http://localhost:3000"]
+BACKEND_CORS_ORIGINS=["http://localhost:3000","http://localhost:8000"]
 
 # Swagger Auth (production)
 SWAGGER_USER=admin
 SWAGGER_PASSWORD=secure-password
+
+# Celery (Optional)
+CELERY_BROKER_URL=redis://localhost:6379/1
+CELERY_RESULT_BACKEND=redis://localhost:6379/1
 ```
 
 ---
@@ -324,6 +338,15 @@ ws.onmessage = (event) => {
 };
 ```
 
+**File Upload:**
+```bash
+POST /api/v1/chat/upload
+Authorization: Bearer <access_token>
+Content-Type: multipart/form-data
+
+file: <your-file>
+```
+
 ### Response Caching
 
 ```python
@@ -334,6 +357,21 @@ from src.core.middlewares.cache import cache_response
 async def get_countries():
     return {"countries": [...]}
 ```
+
+---
+
+## Email Templates
+
+The boilerplate includes beautiful, responsive HTML email templates:
+
+- **Verification Code**: Email verification with OTP
+- **Welcome Email**: Onboarding email after registration
+- **Password Reset**: Password reset with security tips
+
+Templates use Jinja2 and are located in `src/core/services/email_templates/`.
+
+**Development Mode:**
+Set `USE_MOCK_EMAIL=true` to log emails to console instead of sending.
 
 ---
 
@@ -367,7 +405,7 @@ uv run alembic history
 
 Build and run:
 ```bash
-docker compose -f docker-compose.prod.yml up -d --build
+docker compose up -d --build
 ```
 
 ### Environment-Specific Settings
@@ -384,12 +422,14 @@ docker compose -f docker-compose.prod.yml up -d --build
 - [ ] Enable security headers (already configured)
 - [ ] Set up rate limiting thresholds
 - [ ] Configure Celery workers for background tasks
+- [ ] Set `USE_MOCK_EMAIL=false` and configure ZeptoMail
+- [ ] Configure Google Cloud Storage buckets
 
 ### Scaling Considerations
 
 **Horizontal Scaling:**
 - Run multiple uvicorn workers: `--workers 4`
-- Use load balancer (nginx, AWS ALB)
+- Use load balancer (nginx, Cloud Load Balancer)
 - Redis for shared session state
 - PostgreSQL read replicas
 
@@ -416,6 +456,11 @@ uv run ruff format .
 Install pre-commit:
 ```bash
 uv run pre-commit install
+```
+
+Run manually:
+```bash
+uv run pre-commit run --all-files
 ```
 
 ---
@@ -462,9 +507,10 @@ class UserService:
 - **Refresh Token Rotation**: Automatic rotation with reuse detection
 - **Rate Limiting**: Redis-backed request throttling
 - **Content Moderation**: AI + keyword fallback for chatbot safety
-- **Security Headers**: HSTS, CSP, X-Frame-Options, etc.
+- **Security Headers**: HSTS, CSP (configured for Swagger CDN), X-Frame-Options, etc.
 - **Input Validation**: Pydantic v2 schemas
 - **SQL Injection Prevention**: SQLAlchemy parameterized queries
+- **CORS**: Configurable allowed origins
 
 ---
 
@@ -474,8 +520,9 @@ Once the server is running, access:
 - **Swagger UI**: http://localhost:8000/api/docs
 - **ReDoc**: http://localhost:8000/api/redoc
 - **OpenAPI Schema**: http://localhost:8000/api/openapi.json
+- **Chatbot Docs**: http://localhost:8000/api/v1/chat/docs
 
-In production, these are protected by HTTP Basic Auth (configured via `SWAGGER_USER` and `SWAGGER_PASSWORD`).
+In production, documentation is protected by HTTP Basic Auth (configured via `SWAGGER_USER` and `SWAGGER_PASSWORD`).
 
 ---
 
@@ -489,7 +536,7 @@ MIT License - feel free to use this boilerplate for your projects.
 
 For issues and questions:
 - Create an issue in the repository
-- Contact: support@neonapps.co
+- Contact: bariscem@proton.me
 
 ---
 
@@ -501,3 +548,4 @@ Built with:
 - [Pydantic AI](https://ai.pydantic.dev/)
 - [Google Gemini](https://ai.google.dev/)
 - [uv](https://docs.astral.sh/uv/)
+- [ZeptoMail](https://www.zoho.com/zeptomail/)
