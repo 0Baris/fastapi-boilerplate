@@ -1,0 +1,62 @@
+services:
+  api:
+    build: .
+    command: ["/bin/sh", "/app/start.sh"]
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env.prod
+    networks:
+      - app_network
+    restart: unless-stopped
+
+  celery_worker:
+    build: .
+    container_name: celery_worker
+    command: celery -A src.core.celery worker -l info -c 2
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env.prod
+    networks:
+      - app_network
+    restart: unless-stopped
+
+  celery_beat:
+    build: .
+    container_name: celery_beat
+    command: celery -A src.core.celery beat -l info
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env.prod
+    networks:
+      - app_network
+    restart: unless-stopped
+
+  redis:
+    image: "redis:alpine"
+    container_name: redis_cache
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  app_network:
+    driver: bridge
+
+volumes:
+  redis_data:

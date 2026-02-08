@@ -1,0 +1,128 @@
+[project]
+name = "fastapi-boilerplate"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "alembic>=1.17.2",
+    "asyncpg>=0.31.0",
+    "bcrypt==4.0.1",
+    "celery>=5.6.1",
+    "cryptography>=46.0.3",
+    "email-validator>=2.3.0",
+    "fastapi-cli==0.0.20",
+    "fastapi-cloud-cli==0.8.0",
+    "fastapi[standard]==0.127.0",
+    "google>=3.0.0",
+    "google-auth>=2.45.0",
+    "google-cloud-storage>=3.4.1",
+    "google-genai>=1.56.0",
+    "greenlet>=3.3.0",
+    "gunicorn>=23.0.0",
+    "httpx>=0.28.1",
+    "jinja2>=3.1.4",
+    "passlib[bcrypt]==1.7.4",
+    "pre-commit>=4.5.1",
+    "pydantic-ai>=1.51.0",
+    "pydantic-settings>=2.12.0",
+    "pyjwt[crypto]>=2.10.1",
+    "python-json-logger>=3.2.1",
+    "python-multipart>=0.0.21",
+    "pytz>=2025.2",
+    "redis>=7.1.0",
+    "requests>=2.32.5",
+    "ruff==0.14.10",
+    "sqlalchemy>=2.0.45",
+    "timezonefinder>=8.2.1",
+    "pycountry>=24.6.1",
+    "ty==0.0.10",
+    "ty-extensions>=0.1.0",
+    "uvicorn==0.40.0",
+]
+
+[project.scripts]
+migrate = "alembic:upgrade"
+makemigrations = "alembic:revision"
+
+[tool.ruff]
+target-version = "py313"
+
+line-length = 120
+
+include = ["*.py", "*.pyi"]
+extend-exclude = [
+    ".venv",
+    "venv",
+    "__pycache__",
+    "*.pyc",
+    ".git",
+    "alembic/versions",
+    "build",
+    "dist",
+    "scripts",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "W",
+    "F",
+    "I",
+    "B",
+    "C4",
+    "UP",
+    "ARG",
+    "SIM",
+    "TCH",
+    "PTH",
+    "ASYNC",
+    "N",
+    "RUF",
+]
+
+ignore = [
+    "E501",
+    "B008",
+    "W191",
+    "B904",
+    "ARG002",
+    "N805",
+    "UP007",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"alembic/env.py" = ["E402"]
+"tests/**/*.py" = [
+    "S101",
+    "ARG",
+    "S105",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+section-order = [
+    "future",
+    "standard-library",
+    "third-party",
+    "first-party",
+    "local-folder",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.pyupgrade]
+keep-runtime-typing = true
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.408",
+]
