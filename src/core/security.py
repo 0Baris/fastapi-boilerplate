@@ -27,7 +27,45 @@ class SecurityService:
         to_encode = {"sub": str(subject), "exp": expire}
         if extra_data:
             to_encode.update(extra_data)
-        return jwt.encode(to_encode, self.secret_key, algorithm=self.algorithm)
+        # `kid` lets the verifier pick the correct signing key during a key
+        # rotation window (see decode_access_token).
+        return jwt.encode(
+            to_encode,
+            self.secret_key,
+            algorithm=self.algorithm,
+            headers={"kid": settings.JWT_KEY_ID},
+        )
+
+    def decode_access_token(self, token: str) -> dict[str, Any]:
+        """Decode + verify a JWT, supporting current + grace-period old key.
+
+        New tokens carry a `kid` header. During a key rotation:
+        - current `kid` (or no `kid`, for pre-rotation tokens) → verify with SECRET_KEY.
+        - old `kid` → verify with JWT_OLD_KEY while JWT_OLD_KEY_VALID_UNTIL is in the future.
+        Unknown kid / expired grace → InvalidTokenError.
+        """
+        header = jwt.get_unverified_header(token)
+        kid = header.get("kid")
+
+        if kid == settings.JWT_KEY_ID or not kid:
+            return jwt.decode(token, self.secret_key, algorithms=[self.algorithm])
+
+        if kid == settings.JWT_OLD_KEY_ID and settings.JWT_OLD_KEY and self._old_key_still_valid():
+            return jwt.decode(token, settings.JWT_OLD_KEY, algorithms=[self.algorithm])
+
+        raise jwt.InvalidTokenError(f"Unknown or expired JWT key id: {kid!r}")
+
+    def _old_key_still_valid(self) -> bool:
+        until_raw = settings.JWT_OLD_KEY_VALID_UNTIL
+        if not until_raw:
+            return False
+        try:
+            until = datetime.fromisoformat(until_raw)
+        except ValueError:
+            return False
+        if until.tzinfo is None:
+            until = until.replace(tzinfo=UTC)
+        return datetime.now(UTC) < until
 
     def prehash_password(self, password: str) -> str:
         """SHA-256 ile ön hashleme yaparak bcrypt 72 bayt limitini aşar."""

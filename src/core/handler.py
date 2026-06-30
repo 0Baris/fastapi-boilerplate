@@ -6,7 +6,7 @@ from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.responses import JSONResponse
 from jwt import ExpiredSignatureError, InvalidTokenError
 
-from src.core.exception import AppValueError, BaseAppError
+from src.core.exception import AppValueError, BaseAppError, NotFoundError
 from src.core.logging import get_logger
 
 logger: Logger = get_logger(__name__)
@@ -68,6 +68,12 @@ def init(app: FastAPI):
     @app.exception_handler(AppValueError)
     async def app_value_error_handler(_request: Request, exc: AppValueError):
         return _result(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message, _type="ValueError")
+
+    @app.exception_handler(NotFoundError)
+    async def not_found_exception_handler(_request: Request, exc: NotFoundError):
+        # NotFoundError → 404 (standard REST). More specific than BaseAppError below.
+        logger.debug(f"NotFoundError handler caught: {exc.message}")
+        return _result(status_code=status.HTTP_404_NOT_FOUND, detail=exc.message, _type="NotFoundError")
 
     @app.exception_handler(BaseAppError)
     async def app_exception_handler(_request: Request, exc: BaseAppError):

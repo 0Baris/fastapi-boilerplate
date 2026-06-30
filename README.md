@@ -403,10 +403,44 @@ uv run alembic history
 
 ### Docker Production
 
-Build and run:
+Build and run (a one-shot `migrate` service applies Alembic migrations before
+`api`/`worker`/`beat` start — `start.sh` no longer runs migrations itself):
 ```bash
 docker compose up -d --build
 ```
+
+### Cloud Run + Terraform
+
+`infra/` is a **greenfield, fully parameterized** Terraform stack for GCP Cloud
+Run. Every value (project, region, names, CIDRs, domain, sizing) is a variable —
+nothing is hardcoded; values come from `infra/.env`.
+
+```bash
+cd infra
+cp .env.example .env          # fill in project_id, region, names, domain, ...
+./tf.sh init                  # backend bucket/prefix read from .env
+./tf.sh plan
+./tf.sh apply
+```
+
+What it provisions: VPC + PSA + egress firewall, Cloud SQL (Postgres, private
+IP), Memorystore Redis (TLS/AUTH), Secret Manager, runtime + CI/CD service
+accounts, Artifact Registry, three Cloud Run services (`api` behind an external
+HTTPS LB + serverless NEG + managed cert; `worker`/`beat` internal-only), a
+migrate Job, and a Cloud Build trigger.
+
+**CI/CD:** the Cloud Build trigger runs `cloudbuild.yaml` on push to `main`:
+build → push → migrate (Job) → deploy api → worker → beat. Migrations run before
+any service rolls over (expand-contract). The boilerplate's `cloudbuild.yaml`
+substitutions are placeholders; the `infra/modules/cloud_build` trigger supplies
+the real ones.
+
+**App runtime modes:**
+- **Database** — `DATABASE_URL` DSN by default; set `INSTANCE_CONNECTION_NAME`
+  (+ `DB_USER`/`DB_PASSWORD`/`DB_NAME`) to use the Cloud SQL Python Connector.
+- **Secrets** — set `USE_SECRET_MANAGER=true` + `GCP_PROJECT_ID` + `GCP_SECRET_NAME`
+  to load a single `.env`-format secret from Secret Manager at boot.
+- **Client IP** — set `TRUSTED_PROXY_HOP_COUNT=1` behind the Google HTTPS LB.
 
 ### Environment-Specific Settings
 
@@ -424,6 +458,9 @@ docker compose up -d --build
 - [ ] Configure Celery workers for background tasks
 - [ ] Set `USE_MOCK_EMAIL=false` and configure ZeptoMail
 - [ ] Configure Google Cloud Storage buckets
+- [ ] Set `TRUSTED_PROXY_HOP_COUNT` to match your LB (1 behind Google HTTPS LB) so rate-limit IPs can't be spoofed
+- [ ] Plan a JWT key-rotation procedure (`JWT_KEY_ID` + `JWT_OLD_KEY*` grace window)
+- [ ] Prefer Secret Manager (`USE_SECRET_MANAGER=true`) over a committed `.env.prod`
 
 ### Scaling Considerations
 

@@ -1,0 +1,114 @@
+# Cloud Build pipeline: build → push → migrate (update Job → exec) → deploy api → worker → beat.
+# All substitutions are placeholders overridden by the Cloud Build trigger
+# (the infra/modules/cloud_build Terraform module sets them). Edit here only for
+# manual `gcloud builds submit --substitutions=...` runs.
+substitutions:
+  _REGION: us-central1
+  _PROJECT_ID: my-project
+  _AR_REPO: app-repo
+  _IMAGE: app
+  _SERVICE_API: app-api
+  _SERVICE_WORKER: app-worker
+  _SERVICE_BEAT: app-beat
+  _MIGRATE_JOB: app-migrate
+  _CICD_SA: app-cicd
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+
+timeout: 1800s
+serviceAccount: projects/${_PROJECT_ID}/serviceAccounts/${_CICD_SA}@${_PROJECT_ID}.iam.gserviceaccount.com
+
+images:
+  - ${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/${_IMAGE}:$SHORT_SHA
+  - ${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/${_IMAGE}:latest
+
+steps:
+  # 1. Build image (tagged with SHORT_SHA + latest)
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --tag=${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/${_IMAGE}:$SHORT_SHA
+      - --tag=${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/${_IMAGE}:latest
+      - .
+
+  # 2. Push image (both tags) — Artifact Registry scans on push
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    waitFor: [build]
+    args:
+      - push
+      - --all-tags
+      - ${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/${_IMAGE}
+
+  # 3. Point migrate Job at the new image — fails fast if the Job is missing.
+  - id: migrate-update
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    waitFor: [push]
+    entrypoint: gcloud
+    args:
+      - run
+      - jobs
+      - update
+      - ${_MIGRATE_JOB}
+      - --region=${_REGION}
+      - --image=${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/${_IMAGE}:$SHORT_SHA
+      - --command=/app/start-migrate.sh
+
+  # 4. Execute migrate Job and block (--wait) — non-zero exit aborts the build
+  #    before any service rolls forward (expand-contract: schema ahead of code).
+  - id: migrate-exec
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    waitFor: [migrate-update]
+    entrypoint: gcloud
+    args:
+      - run
+      - jobs
+      - execute
+      - ${_MIGRATE_JOB}
+      - --region=${_REGION}
+      - --wait
+
+  # 5. Deploy API
+  - id: deploy-api
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    waitFor: [migrate-exec]
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE_API}
+      - --region=${_REGION}
+      - --image=${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/${_IMAGE}:$SHORT_SHA
+      - --command=/app/start.sh
+      - --quiet
+
+  # 6. Deploy worker
+  - id: deploy-worker
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    waitFor: [migrate-exec]
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE_WORKER}
+      - --region=${_REGION}
+      - --image=${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/${_IMAGE}:$SHORT_SHA
+      - --command=/app/start-worker.sh
+      - --quiet
+
+  # 7. Deploy beat last (after worker is ready to consume).
+  - id: deploy-beat
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    waitFor: [deploy-worker]
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE_BEAT}
+      - --region=${_REGION}
+      - --image=${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/${_IMAGE}:$SHORT_SHA
+      - --command=/app/start-beat.sh
+      - --quiet

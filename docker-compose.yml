@@ -1,4 +1,15 @@
 services:
+  # One-shot migrations. start.sh no longer runs alembic, so the schema is
+  # applied here before api/worker/beat start (expand-contract).
+  migrate:
+    build: .
+    command: ["/bin/sh", "/app/start-migrate.sh"]
+    env_file:
+      - .env.prod
+    networks:
+      - app_network
+    restart: "no"
+
   api:
     build: .
     command: ["/bin/sh", "/app/start.sh"]
@@ -7,6 +18,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     env_file:
       - .env.prod
     networks:
@@ -20,6 +33,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     env_file:
       - .env.prod
     networks:
@@ -29,10 +44,14 @@ services:
   celery_beat:
     build: .
     container_name: celery_beat
-    command: celery -A src.core.celery beat -l info
+    # --schedule/--pidfile under /tmp: the image runs as non-root and cannot
+    # write the default celerybeat-schedule shelf in /app.
+    command: celery -A src.core.celery beat -l info --schedule=/tmp/celerybeat-schedule --pidfile=/tmp/celerybeat.pid
     depends_on:
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     env_file:
       - .env.prod
     networks:

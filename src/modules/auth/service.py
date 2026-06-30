@@ -376,23 +376,37 @@ class AuthService:
 
         await self._validate_code(email=verify_data.email, input_code=verify_data.code, type_prefix="reset")
 
+        # One-time `jti`: a nonce stored in Redis and consumed on reset, so a
+        # reset token cannot be replayed within its 10-min window.
+        jti = uuid.uuid4().hex
         reset_token = security_service.create_access_token(
-            subject=user.id, extra_data={"scope": "password_reset"}, expires_delta=timedelta(minutes=10)
+            subject=user.id,
+            extra_data={"scope": "password_reset", "jti": jti},
+            expires_delta=timedelta(minutes=10),
         )
+        await self.redis.set(f"reset_nonce:{jti}", "1", expire=600)
 
         return {"reset_token": reset_token, "token_type": "bearer"}
 
     async def reset_password(self, reset_data: ResetPasswordRequest):
         try:
-            payload = jwt.decode(reset_data.reset_token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-
-            if payload.get("scope") != "password_reset":
-                raise AuthenticationError("Invalid token scope")
-
-            user_id = payload.get("sub")
-
-        except Exception:
+            # kid-aware verify (honors JWT_OLD_KEY grace window).
+            payload = security_service.decode_access_token(reset_data.reset_token)
+        except jwt.PyJWTError:
             raise AuthenticationError("Invalid or expired reset token.")
+
+        if payload.get("scope") != "password_reset":
+            raise AuthenticationError("Invalid token scope")
+
+        # One-time use: nonce must still exist (not consumed, not expired). Tokens
+        # minted before the jti change have no nonce → rejected, forcing re-request.
+        jti = payload.get("jti")
+        nonce_key = f"reset_nonce:{jti}" if jti else None
+        if not nonce_key or await self.redis.get(nonce_key) is None:
+            raise AuthenticationError("Invalid or expired reset token.")
+        await self.redis.delete(nonce_key)
+
+        user_id = payload.get("sub")
 
         user = await self.user_repo.get(user_id)
         if not user:
@@ -419,7 +433,11 @@ class AuthService:
             is_active=True,
             is_verified=False,
         )
-        await self.user_repo.create(new_user)
+        # add()+flush() (not repo.create which auto-commits) so this method owns
+        # the single commit. If the verification email send below raises, the
+        # user INSERT is rolled back instead of being half-persisted.
+        self.db.add(new_user)
+        await self.db.flush()
 
         code: str = await self._generate_and_save_code(register_data.email, type_prefix="verify")
 
@@ -428,6 +446,8 @@ class AuthService:
             code=code,
             name=register_data.full_name or "Runner",
         )
+
+        await self.db.commit()
 
         response = {"message": "Verification code sent to your email."}
 

@@ -15,12 +15,11 @@ from typing import Any
 
 import jwt
 from fastapi import WebSocket, WebSocketDisconnect
-from jwt import InvalidTokenError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.config import settings
 from src.core.database import get_db
 from src.core.logging import get_logger
+from src.core.security import security_service
 from src.modules.users.models import User
 from src.modules.users.repository import UserRepository
 
@@ -168,7 +167,7 @@ async def authenticate_websocket(token: str, db: AsyncSession) -> User:
         if token.startswith("Bearer "):
             token = token[7:]
 
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = security_service.decode_access_token(token)
         user_id_str = payload.get("sub")
 
         if not user_id_str:
@@ -188,7 +187,7 @@ async def authenticate_websocket(token: str, db: AsyncSession) -> User:
 
         return user
 
-    except InvalidTokenError as e:
+    except jwt.PyJWTError as e:
         logger.error(f"JWT decode error: {e}")
         raise WebSocketAuthError("Invalid or expired token", WebSocketErrorCode.INVALID_TOKEN)
 
