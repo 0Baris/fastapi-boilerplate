@@ -10,9 +10,8 @@ import sys
 import time
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
 
-from src.core.config import settings
+from src.core.database import _build_engine
 
 
 async def wait_for_database(max_retries: int = 30, retry_interval: int = 2) -> bool:
@@ -28,7 +27,9 @@ async def wait_for_database(max_retries: int = 30, retry_interval: int = 2) -> b
     """
     print("Waiting for database connection...")
 
-    engine = create_async_engine(settings.DATABASE_URL, echo=False, pool_pre_ping=True)
+    # Reuse the app's engine factory so this probe works in both modes
+    # (Cloud SQL Connector when INSTANCE_CONNECTION_NAME is set, else DSN).
+    engine = _build_engine()
 
     for attempt in range(max_retries):
         try:

@@ -3,11 +3,10 @@ from typing import Any
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jwt import InvalidTokenError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.config import settings
 from src.core.database import get_db
+from src.core.security import security_service
 from src.modules.users.models import User
 from src.modules.users.repository import UserRepository
 
@@ -30,16 +29,13 @@ async def get_current_user(
     )
 
     try:
-        payload: Any = jwt.decode(
-            jwt=token,
-            key=settings.SECRET_KEY,
-            algorithms=[settings.ALGORITHM],
-        )
+        # kid-aware verify: honors SECRET_KEY + JWT_OLD_KEY grace window.
+        payload: Any = security_service.decode_access_token(token)
         user_id: str = payload.get("sub")
         if user_id is None:
             raise credentials_exception
 
-    except InvalidTokenError:
+    except jwt.PyJWTError:
         raise credentials_exception
     user_repo = UserRepository(db=db)
     user: User | None = await user_repo.get(id=user_id)

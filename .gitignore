@@ -19,5 +19,16 @@ dev/
 .DS_Store
 environment
 terra-datas/
-scripts/
+# Ignore ad-hoc local scripts, but keep the Cloud Run health wrappers (app code).
+scripts/*
+!scripts/worker_health.py
+!scripts/beat_health.py
 celerybeat*
+
+# Terraform local state / secrets (infra values come from infra/.env)
+infra/.env
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+crash.log

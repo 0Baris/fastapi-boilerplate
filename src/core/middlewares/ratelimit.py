@@ -1,6 +1,7 @@
 from fastapi import Depends, HTTPException, Request
 
 from src.core.services.redis_service import RedisService, get_redis_service
+from src.core.utils.proxy_ip import get_client_ip
 
 
 class RateLimiter:
@@ -23,7 +24,7 @@ class RateLimiter:
 
     async def __call__(self, request: Request, redis: RedisService = Depends(get_redis_service)):
         """FastAPI dependency to rate limit requests by IP address."""
-        client_ip: str = request.client.host  # ty:ignore[possibly-missing-attribute]
+        client_ip: str = get_client_ip(request)
         path: str = request.url.path
         key = f"rate_limit:ip:{client_ip}:{path}"
 
@@ -64,7 +65,7 @@ class UserRateLimiter:
 
         if not user_id:
             # Fallback to IP-based if user is not authenticated
-            client_ip: str = request.client.host  # ty:ignore[possibly-missing-attribute]
+            client_ip: str = get_client_ip(request)
             key = f"rate_limit:ip:{client_ip}:{request.url.path}"
         else:
             key = f"rate_limit:user:{user_id}:{request.url.path}"
