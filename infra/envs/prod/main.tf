@@ -127,12 +127,26 @@ locals {
   egress_subnet = module.network.egress_subnet_id
   runtime_sa    = module.iam.runtime_sa_email
 
-  # Connection metadata injected into every workload, merged on top of
-  # operator-supplied runtime_env.
+  # REDIS_URL is what the app + Celery actually read (settings.REDIS_URL,
+  # celery broker/backend) — NOT REDIS_HOST/PORT. Build it from the instance
+  # outputs. With transit encryption on, use rediss:// + ssl_cert_reqs=none
+  # (Memorystore server-auth TLS without pinning the CA on the client).
+  redis_scheme    = var.redis_transit_encryption_mode == "DISABLED" ? "redis" : "rediss"
+  redis_userinfo  = var.redis_auth_enabled ? "default:${module.memorystore.auth_string}@" : ""
+  redis_tls_query = var.redis_transit_encryption_mode == "DISABLED" ? "" : "?ssl_cert_reqs=none"
+  redis_url       = "${local.redis_scheme}://${local.redis_userinfo}${module.memorystore.host}:${module.memorystore.port}/0${local.redis_tls_query}"
+
+  # Connection env injected into every workload, merged under operator-supplied
+  # runtime_env. INSTANCE_CONNECTION_NAME makes database.py take Connector mode,
+  # which needs DB_USER/DB_NAME/DB_PASSWORD. DB_PASSWORD + the Redis AUTH string
+  # are injected here as plain env for a working first apply — for production
+  # move them into Secret Manager and pass via `runtime_secret_env`.
   base_env = {
     INSTANCE_CONNECTION_NAME = module.cloud_sql.connection_name
-    REDIS_HOST               = module.memorystore.host
-    REDIS_PORT               = tostring(module.memorystore.port)
+    DB_USER                  = var.db_user
+    DB_NAME                  = var.db_name
+    DB_PASSWORD              = var.db_password
+    REDIS_URL                = local.redis_url
   }
 
   runtime_env = merge(local.base_env, var.runtime_env)

@@ -197,8 +197,13 @@ variable "redis_auth_enabled" {
 
 variable "redis_transit_encryption_mode" {
   type        = string
-  description = "Redis transit encryption mode (DISABLED or SERVER_AUTHENTICATION)."
-  default     = "SERVER_AUTHENTICATION"
+  description = <<-EOT
+    Redis transit encryption: DISABLED or SERVER_AUTHENTICATION. Defaults to
+    DISABLED — AUTH over the private VPC works out of the box. Set
+    SERVER_AUTHENTICATION to enable TLS (the REDIS_URL then uses rediss:// +
+    ssl_cert_reqs=none; pin the Memorystore CA on the client for full verification).
+  EOT
+  default     = "DISABLED"
 }
 
 ######################################################################
@@ -319,13 +324,13 @@ variable "api_memory" {
 variable "api_startup_probe_path" {
   type        = string
   description = "Startup probe HTTP path for the API. Empty disables it."
-  default     = "/health"
+  default     = "/api/v1/health/live"
 }
 
 variable "api_liveness_probe_path" {
   type        = string
   description = "Liveness probe HTTP path for the API. Empty disables it."
-  default     = "/health"
+  default     = "/api/v1/health/live"
 }
 
 ######################################################################
